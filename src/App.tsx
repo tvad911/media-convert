@@ -7,6 +7,7 @@ import Header from "./components/Header";
 import FileList from "./components/FileList";
 import SettingsPanel from "./components/SettingsPanel";
 import StatsPanel from "./components/StatsPanel";
+import { AboutModal } from "./components/AboutModal";
 import { usePersistentState } from "./hooks/usePersistentState";
 import "./index.css";
 
@@ -95,6 +96,7 @@ function App() {
 
   // Non-persistent states
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isAboutOpen, setIsAboutOpen] = useState(false);
   const [logs, setLogs] = useState<string[]>([]);
 
   useEffect(() => {
@@ -389,6 +391,7 @@ function App() {
         onAddDirectory={handleAddDirectory}
         onStartProcessing={handleStartProcessing}
         onPause={handleStop}
+        onOpenAbout={() => setIsAboutOpen(true)}
 
         onClearCompleted={handleClearCompleted}
         isProcessing={isProcessing}
@@ -471,6 +474,7 @@ function App() {
           />
         </div>
       </div>
+      <AboutModal isOpen={isAboutOpen} onClose={() => setIsAboutOpen(false)} />
     </div>
   );
 }
