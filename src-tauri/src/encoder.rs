@@ -1,10 +1,10 @@
+use anyhow::{Context, Result};
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::process::Stdio;
-use anyhow::{Context, Result};
-use regex::Regex;
-use tokio::process::Command;
 use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::process::Command;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EncodingSettings {
@@ -133,14 +133,14 @@ pub fn calculate_safe_bitrate(target: u64, original: u64) -> u64 {
 }
 
 /// Validate resolution (prevent upscaling)
-pub fn validate_resolution(
-    target: (u32, u32),
-    original: (u32, u32),
-) -> Result<(u32, u32)> {
+pub fn validate_resolution(target: (u32, u32), original: (u32, u32)) -> Result<(u32, u32)> {
     if target.0 > original.0 || target.1 > original.1 {
         anyhow::bail!(
             "Cannot upscale video from {}x{} to {}x{}",
-            original.0, original.1, target.0, target.1
+            original.0,
+            original.1,
+            target.0,
+            target.1
         );
     }
     Ok(target)
@@ -161,7 +161,9 @@ pub fn build_ffmpeg_command(
     let mut args = vec![
         "-i".to_string(),
         input.to_str().unwrap().to_string(),
-        "-y".to_string(), // Overwrite output file
+        "-y".to_string(),       // Overwrite output file
+        "-threads".to_string(), // Use multiple threads for encoding
+        "0".to_string(),        // 0 means optimal number of threads based on CPU cores
     ];
 
     // Video codec
@@ -236,7 +238,8 @@ pub fn parse_progress(line: &str, total_duration: f64) -> Option<EncodingProgres
         static ref BITRATE_RE: Regex = Regex::new(r"bitrate=([\d.]+)kbits/s").unwrap();
     }
 
-    let time_ms = TIME_RE.captures(line)
+    let time_ms = TIME_RE
+        .captures(line)
         .and_then(|cap| cap.get(1))
         .and_then(|m| m.as_str().parse::<u64>().ok())?;
 
@@ -247,17 +250,20 @@ pub fn parse_progress(line: &str, total_duration: f64) -> Option<EncodingProgres
         0.0
     };
 
-    let fps = FPS_RE.captures(line)
+    let fps = FPS_RE
+        .captures(line)
         .and_then(|cap| cap.get(1))
         .and_then(|m| m.as_str().parse::<f32>().ok())
         .unwrap_or(0.0);
 
-    let speed = SPEED_RE.captures(line)
+    let speed = SPEED_RE
+        .captures(line)
         .and_then(|cap| cap.get(1))
         .map(|m| format!("{}x", m.as_str()))
         .unwrap_or_else(|| "0x".to_string());
 
-    let bitrate = BITRATE_RE.captures(line)
+    let bitrate = BITRATE_RE
+        .captures(line)
         .and_then(|cap| cap.get(1))
         .map(|m| format!("{}kbits/s", m.as_str()))
         .unwrap_or_else(|| "0kbits/s".to_string());
@@ -270,8 +276,6 @@ pub fn parse_progress(line: &str, total_duration: f64) -> Option<EncodingProgres
         bitrate,
     })
 }
-
-
 
 /// Encode video with progress callback
 pub async fn encode_video<F>(
@@ -301,12 +305,14 @@ where
 
     // Handle stdout for progress updates
     let mut stdout_reader = BufReader::new(stdout);
-    
+
     // Spawn task for stdout processing
     let stdout_handle = tokio::spawn(async move {
         let mut line = String::new();
         while let Ok(n) = stdout_reader.read_line(&mut line).await {
-            if n == 0 { break; }
+            if n == 0 {
+                break;
+            }
             if let Some(progress) = parse_progress(&line, total_duration) {
                 progress_callback(progress);
             }
@@ -322,9 +328,11 @@ where
         let mut lines = Vec::new();
         let mut line = String::new();
         while let Ok(n) = stderr_reader.read_line(&mut line).await {
-            if n == 0 { break; }
+            if n == 0 {
+                break;
+            }
             let log_line = line.trim().to_string();
-            
+
             // Emit log line to frontend
             let _ = app_clone.emit("ffmpeg-log", log_line.clone());
 
@@ -339,14 +347,21 @@ where
     });
 
     // Wait for process to complete
-    let status = child.wait().await.context("Failed to wait for ffmpeg process")?;
-    
+    let status = child
+        .wait()
+        .await
+        .context("Failed to wait for ffmpeg process")?;
+
     // Wait for IO tasks to finish
     let _ = stdout_handle.await;
     let error_log = stderr_handle.await.unwrap_or_default();
 
     if !status.success() {
-        anyhow::bail!("FFmpeg encoding failed with status: {}\nLast 20 lines of error log:\n{}", status, error_log);
+        anyhow::bail!(
+            "FFmpeg encoding failed with status: {}\nLast 20 lines of error log:\n{}",
+            status,
+            error_log
+        );
     }
 
     Ok(())

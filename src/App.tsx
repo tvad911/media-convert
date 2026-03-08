@@ -74,6 +74,25 @@ export interface QueueStats {
   cancelled: number;
 }
 
+const extractPath = (val: any): string | null => {
+  if (!val) return null;
+  if (typeof val === "string") return val;
+  if (Array.isArray(val) && val.length > 0) {
+    return typeof val[0] === "string" ? val[0] : val[0].path || null;
+  }
+  return val.path || null;
+};
+
+const extractPaths = (val: any): string[] => {
+  if (!val) return [];
+  if (typeof val === "string") return [val];
+  if (Array.isArray(val)) {
+    return val.map((v) => (typeof v === "string" ? v : v.path)).filter(Boolean);
+  }
+  if (val.path) return [val.path];
+  return [];
+};
+
 function App() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
@@ -217,13 +236,9 @@ function App() {
 
       console.log("Selected files:", selected);
 
-      if (selected && Array.isArray(selected)) {
-        // Handle both string[] (Tauri v2) and object[] (Tauri v1/Backwards compat)
-        const paths = selected.map((file: any) => {
-          if (typeof file === "string") return file;
-          return file.path;
-        });
+      const paths = extractPaths(selected);
 
+      if (paths.length > 0) {
         let output = outputDir;
         if (!output) {
           try {
@@ -250,30 +265,6 @@ function App() {
           console.log("New jobs created:", newJobs);
           setJobs((prev) => [...prev, ...newJobs]);
         }
-      } else if (selected && typeof selected === "string") {
-        // Single file selected
-        const paths = [selected];
-
-        let output = outputDir;
-        if (!output) {
-          try {
-            output = await downloadDir();
-            setOutputDir(output);
-          } catch (e) {
-            console.error("Failed to get default content dir", e);
-            output = (await selectOutputDir()) || "";
-          }
-        }
-
-        if (output) {
-          console.log("Adding file:", paths);
-          const newJobs = await invoke<Job[]>("add_files", {
-            paths,
-            outputDir: output,
-            settings,
-          });
-          setJobs((prev) => [...prev, ...newJobs]);
-        }
       }
     } catch (error) {
       console.error("Failed to add files:", error);
@@ -290,8 +281,9 @@ function App() {
 
       console.log("Selected directory:", selected);
 
-      if (selected) {
-        const dirPath = selected;
+      const dirPath = extractPath(selected);
+
+      if (dirPath) {
         const output = outputDir || (await selectOutputDir());
 
         if (output) {
@@ -325,8 +317,9 @@ function App() {
 
       console.log("Selected output directory:", selected);
 
-      if (selected) {
-        const path = selected;
+      const path = extractPath(selected);
+
+      if (path) {
         setOutputDir(path);
         return path;
       }
